@@ -1,11 +1,203 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>My Electron App</title>
+    <title>Quest Browser</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f5f5f5;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .browser-container {
+            flex-grow: 1;
+            /* This space will be used by the BrowserView */
+        }
+
+        .notes-section {
+            height: 200px;
+            background: white;
+            border-top: 1px solid #ddd;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .notes-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .notes-content {
+            display: flex;
+            gap: 10px;
+            height: 100%;
+        }
+
+        .notes-input {
+            flex-grow: 1;
+            resize: none;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: inherit;
+        }
+
+        .notes-list {
+            flex-basis: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+        }
+
+        .note-item {
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+        }
+
+        .quest-info {
+            padding: 10px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .depth-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
 </head>
 <body>
-  <h1>Hello, Electron1!</h1>
+    <div class="quest-info" id="questInfo">
+        <input type="text" id="questGoal" placeholder="What is your quest?" style="width: 300px;">
+        <button onclick="startNewQuest()">Begin Quest</button>
+        <span id="depthIndicator"></span>
+    </div>
+
+    <div class="browser-container">
+        <!-- BrowserView will be inserted here by Electron -->
+    </div>
+
+    <div class="notes-section">
+        <div class="notes-header">
+            <div class="depth-control">
+                <span>Depth: <span id="currentDepth">0</span></span>
+                <button onclick="adjustDepth(1)">Deeper</button>
+                <button onclick="adjustDepth(-1)">Surface</button>
+            </div>
+            <button onclick="synthesizeQuest()" id="synthesizeButton" style="display: none;">Synthesize</button>
+        </div>
+        <div class="notes-content">
+            <textarea 
+                class="notes-input" 
+                id="noteInput" 
+                placeholder="Take notes here... Press Ctrl+Enter to save"
+            ></textarea>
+            <div class="notes-list" id="notesList"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentQuestId = null;
+        let currentDepth = 0;
+
+        document.getElementById('noteInput').addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                saveNote();
+            }
+        });
+
+        function adjustDepth(change) {
+            if (!currentQuestId) return;
+            currentDepth = Math.max(0, Math.min(5, currentDepth + change));
+            document.getElementById('currentDepth').textContent = currentDepth;
+            window.electron.ipcRenderer.invoke('update-depth', { questId: currentQuestId, depth: currentDepth });
+        }
+
+        async function saveNote() {
+            if (!currentQuestId) return;
+            
+            const noteInput = document.getElementById('noteInput');
+            const note = noteInput.value.trim();
+            if (!note) return;
+
+            await window.electron.ipcRenderer.invoke('add-insight', {
+                questId: currentQuestId,
+                insight: note
+            });
+
+            updateNotesList(note);
+            noteInput.value = '';
+        }
+
+        function updateNotesList(newNote) {
+            const notesList = document.getElementById('notesList');
+            const noteElement = document.createElement('div');
+            noteElement.className = 'note-item';
+            noteElement.textContent = `[Depth ${currentDepth}] ${newNote}`;
+            notesList.insertBefore(noteElement, notesList.firstChild);
+        }
+
+        async function startNewQuest() {
+            const goalInput = document.getElementById('questGoal');
+            const goal = goalInput.value.trim();
+            
+            if (!goal) {
+                alert('Please enter a quest goal');
+                return;
+            }
+
+            currentQuestId = await window.electron.ipcRenderer.invoke('start-quest', goal);
+            document.getElementById('synthesizeButton').style.display = 'block';
+            goalInput.disabled = true;
+        }
+
+        async function synthesizeQuest() {
+            if (!currentQuestId) return;
+            
+            const synthesis = await window.electron.ipcRenderer.invoke('synthesize-quest', currentQuestId);
+            displaySynthesis(synthesis);
+        }
+
+        function displaySynthesis(synthesis) {
+            const container = document.getElementById('insightContainer');
+            container.innerHTML = `
+                <h2>Quest Synthesis</h2>
+                <p><strong>Goal:</strong> ${synthesis.goal}</p>
+                <p><strong>Duration:</strong> ${Math.round(synthesis.duration / 1000)} seconds</p>
+                <h3>Insights by Depth:</h3>
+                ${Object.entries(synthesis.insightsByDepth).map(([depth, insights]) => `
+                    <div class="depth-level">
+                        <h4>Depth ${depth}</h4>
+                        <ul>
+                            ${insights.map(insight => `<li>${insight}</li>`).join('')}
+                        </ul>
+                    </div>
+                `).join('')}
+            `;
+        }
+    </script>
 </body>
 </html>
